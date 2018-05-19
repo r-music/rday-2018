@@ -7,11 +7,11 @@ happening in 22 May, Curitiba, Brazil.
 The following list represents everything I intend to put here:
 
 - [ ] The presentation. 
-- [ ] Small tutorials for the presented packages. 
+- [X] Small tutorials for the presented packages. 
 - [ ] A brief introduction about music and *music information
 retrieval*. 
-- [ ] A shiny application I want to show during the presentation. 
-- [ ] Bonus files.
+- [X] A shiny application I want to show during the presentation. 
+- [X] Bonus files.
 
 
 <center> <p> &hearts; <p> </center> 

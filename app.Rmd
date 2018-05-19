@@ -1,0 +1,629 @@
+---
+title: "Chico Buarque"
+output:  
+  flexdashboard::flex_dashboard:
+    theme: journal
+    background: pink
+    vertical_layout: scroll
+---
+
+Letras
+=======================================================================
+
+Row {data-height = 50}
+-----------------------------------------------------------------------
+
+### Texto 
+
+**Gráfico 1 ** - Nuvem de Palavras: mostra as palavras mais
+recorrentes nas músicas do Chico buarque. As palavras consideradas
+são aquelas que tem uma frequência mínima (>5) nos textos, para
+não "poluir" a nuvem. 
+
+<n>
+
+**Gráfico 2** - Rede de Associações: mostra as palavras mais
+comumente associadas, ou seja, que mais aparecem conjutamente
+(antes ou depois) com a palavras "amor". O "amor" foi escolhido
+como referência, mas a rede pode ser feita com outras palavras, 
+inclusive mais de uma. 
+
+<n>
+
+**Gráfico 3** - % de Polaridades por Música: em análise de texto,
+podemos atribuir polaridades (-1, 0, 1) que corresponde 
+aos sentimentos "Negativo", "Neutro" e "Positivo", 
+respectivamente, às palavras das letras. O gráfico exibido mostra
+as porcentagens de cada sentimento nas músicas de 
+Chico Buarque, considerando palavra a palavra. 
+
+
+
+
+### % de polaridades por música
+```{r}
+library(tidyverse)
+library(tm)
+library(lexiconPT)
+library(wordcloud)
+library(networkD3)
+
+#----------------------------------------------------------------
+# Frequência de Palavras
+#----------------------------------------------------------------
+load("match.rda")
+
+# Pegando apenas uma letra por música
+let <- match %>% 
+  dplyr::group_by(song) %>% 
+  dplyr::slice(1) %>% 
+  dplyr::select(text)
+
+#----------------------------------------------------------------------
+# Atribuição de Polaridades
+#----------------------------------------------------------------------
+
+# Dicionário de sentimentos do pacote lexiconPT
+dic <- lexiconPT::oplexicon_v3.0
+
+pp <- function(song){
+  
+  cps <- VCorpus(VectorSource(song),
+                 readerControl = list(language = "pt"))
+  cps <- tm_map(cps, FUN = content_transformer(tolower))
+  cps <- tm_map(cps, FUN = removePunctuation)
+  cps <- tm_map(cps, FUN = removeNumbers)
+  cps <- tm_map(cps, FUN = stripWhitespace)
+  cps <- tm_map(cps,
+                FUN = removeWords,
+                words = stopwords("portuguese"))
+  cps <- tm_map(cps,
+                FUN = removeWords,
+                words = "\t")
+  
+  dtm <- DocumentTermMatrix(cps)
+  inter <- intersect(x = Terms(dtm),
+                   y = dic$term) %>% 
+  as.data.frame() %>% 
+  setNames("term")
+  
+  lex <- dplyr::left_join(x = inter,
+                        y = dic, "term")
+  
+  pp <- c(prop.table(xtabs(~polarity, lex)))
+  
+  
+  return(pp)  
+}
+
+pcs <- plyr::ldply(purrr::map(let$text, pp), matrix, ncol = 3) %>% 
+  as.data.frame() %>%  
+  setNames(c("neg", "neut", "pos")) 
+
+pcs$neut[21] <- 0
+pcs$pos[25] <- 0
+
+pcs <- data.frame(pol = c(pcs$neg, pcs$neut, pcs$pos), 
+                  group = as.factor(rep(c(1, 2, 3), each = 36)),
+                  mus = unique(match$song)) %>% 
+  mutate(mus = str_to_title(as.character(mus)))
+
+# colocar as labels das musicas
+
+p <- pcs %>% arrange(group, mus) %>% 
+  mutate(mus = fct_reorder(factor(mus),  pol,  first))%>% 
+  ggplot(aes(x = factor(mus), y = pol,
+             group = fct_rev(group))) +
+  geom_col(aes(fill = group), position = "stack", 
+           colour = "tan", size = 0.1) +
+  coord_flip() + 
+  ylim(0, 1) +
+  scale_fill_manual("Sentimento", 
+                    values = c("tomato", "grey95", "skyblue"), 
+                    labels = c("Negativo", 
+                                      "Neutro", 
+                                      "Positivo")) +
+  labs(y = "Polaridades", x = "")
+
+
+theme <- theme(
+  axis.line = element_line(size = 0.5, colour = "tan"),
+  panel.grid.major = element_line(
+    colour = "black", size = 0.08, linetype = "dotted"),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  strip.background = element_rect(colour = "tan", 
+                                  fill = "white", size = 0.6), 
+  strip.text = element_text(size = 14),
+  axis.title = element_text(size = 14),
+  axis.text = element_text(size = 12))
+
+  
+pl <- p + theme
+plotly::ggplotly(pl)
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Nuvem de palavras
+```{r, fig.height=5}
+# Cria o Corpus e limpa 
+
+cps <- VCorpus(VectorSource(let$text),
+                 readerControl = list(language = "pt"))
+cps <- tm_map(cps, FUN = content_transformer(tolower))
+cps <- tm_map(cps, FUN = removePunctuation)
+cps <- tm_map(cps, FUN = removeNumbers)
+cps <- tm_map(cps, FUN = stripWhitespace)
+cps <- tm_map(cps,
+                FUN = removeWords,
+                words = stopwords("portuguese"))
+cps <- tm_map(cps,
+                FUN = removeWords,
+                words = "\t")
+
+# Cria a matriz de documentos e termos
+dtm <- DocumentTermMatrix(cps)
+
+pal <- c("tomato", "skyblue")
+wordcloud(cps,
+          family = "serif", 
+          min.freq = 5,
+          max.words = 30,
+          colors = pal)
+```
+
+### Associação entre palavras 
+```{r, results='asis'}
+  
+# Termos frequentes
+tms <- findFreqTerms(dtm, lowfreq = 3)
+
+assoc <- findAssocs(dtm, terms = tms, corlimit = 0.5)
+
+b <- data.frame(pal = "amor", assoc = names(assoc$amor))
+
+# Visualização de associação entre palavras
+
+simpleNetwork(b,
+              # opacity = 0.5, 
+              linkColour = "skyblue", 
+              nodeColour ="tomato", 
+              zoom = TRUE, fontSize = 16,
+              linkDistance = 70)
+
+```
+
+
+
+Acordes
+=======================================================================
+
+Column {data-width=350, data-height=700}
+-----------------------------------------------------------------------
+
+### Acordes distintos/música
+```{r}
+
+da <- match %>% 
+  dplyr::mutate(acorde = case_when( # Contribuição do Julio 
+    acorde == "Gb" ~ "F#",
+    acorde == "C#" ~ "Db",          
+    acorde == "G#" ~ "Ab",
+    acorde == "A#" ~ "Bb",
+    acorde == "D#" ~ "Eb",
+    acorde == "E#" ~ "F",
+    acorde == "B#" ~ "C",
+    TRUE ~ acorde)) 
+
+da_g <- da %>% 
+  # Agrupamento por data + acorde + musica
+  dplyr::group_by(song, chord) %>% 
+  # Mantém os acordes distintos/ano
+  dplyr::summarise(distintos = n_distinct(chord)) %>% 
+  dplyr::summarise(cont = n()) %>% 
+  dplyr::mutate(song_t = stringr::str_to_title(song))
+
+p <- da_g %>% 
+  dplyr::mutate(song_t = fct_reorder(song_t, cont)) %>% 
+  ggplot(aes(x = cont, y = song_t)) +
+  geom_point(colour = "skyblue2", size = 3) +
+  labs(x = "Quantidade de acordes distintos", y = "")
+
+pl <- p + theme
+plotly::ggplotly(pl)
+```
+
+### Densidades de Variáveis Extraídas
+```{r}
+feature_extraction <- function(da){
+  if(!is.null(da)){
+    da <- da %>% 
+      dplyr::mutate(
+        # Acordes menores
+        minor = stringr::str_detect(chord, "m") * 1,
+        # Acordes com sétima
+        seventh = stringr::str_detect(chord, "7") * 1,
+        # Acordes com sétima maior 
+        seventh_M = stringr::str_detect(chord, "7(M|\\+)" ) * 1,
+        # Acordes com sexta 
+        sixth = stringr::str_detect(chord, "(6|13)") * 1,
+        # Acordes com quinta (?)
+        fifth = stringr::str_detect(chord, "5") * 1,
+        # Acordes com quinta aumentada (?)
+        fifth_aug = stringr::str_detect(chord, "5(#|\\+)") * 1,
+        # Acordes com quartas
+        fourth = stringr::str_detect(chord, "5(b|-)") * 1,
+        # Acordes com nona
+        ninth = stringr::str_detect(chord, "(9|2)") * 1,
+        # Acordes com baixos variantes 
+        bass = stringr::str_extract(chord, pattern = "(?<=/).*")
+      )
+    return(da)
+  }
+  
+}
+
+
+db <- da %>% 
+  feature_extraction() %>% 
+  dplyr::group_by(song) %>% 
+  dplyr::summarise(n = n(), 
+            minor = sum(minor)/n, 
+            seventh = sum(seventh)/n,
+            seventh_M = sum(seventh_M)/n, 
+            sixth = sum(sixth)/n,
+            fifth = sum(fifth)/n,
+            fifth_aug = sum(fifth_aug)/n,
+            fourth = sum(fourth)/n,
+            ninth = sum(ninth)/n)
+
+
+dt <- db %>% 
+  tidyr::gather(group, vars, minor, seventh, 
+                seventh_M, sixth, fifth, fifth_aug, 
+                fourth, ninth)
+
+library(ggridges)
+
+dt$group <- forcats::lvls_revalue(dt$group,
+                                  c("Quinta", "Quinta Aumentada",
+                                    "Quarta", "Acordes Menores",
+                                    "Nona", "Sétima", "Sétima Maior",
+                                    "Sexta"))
+
+dt %>% ggplot(aes(vars, group, fill = group)) +
+  geom_density_ridges( alpha = 0.7) +
+     scale_fill_cyclical(values = c("tomato", "skyblue2")) +
+  guides(fill = FALSE) +
+  #xlim(0, 1) +
+  labs(x = "Densidades", y = "Variáveis Extraídas") +
+  theme
+```
+
+Column {data-width=500,  data-height=700}
+-----------------------------------------------------------------------
+
+### Texto 
+
+**Gráfico 1 ** - Quantidade de acordes distintos: este gráfico
+mostra as quantidades de acordes diferentes, desconsiderando as 
+repetições, que aconteceram em cada música considerada aqui. 
+
+<n>
+
+**Gráfico 2** - Densidades de Variáveis Extraídas: com os acordes
+em mão, podemos realizar a extração de algumas covariáveis legais.
+Os exemplos aqui são de porcentagens de acorde com sétima, quinta,
+quarta, nona, acordes menores, entre outros, tudo isso por música. 
+o gráfico mostra as densidades destas variáveis. 
+
+
+<n>
+
+**Gráfico 3** - O Diagrama de Cordas: este gráfico representa
+as frequências que cada transição entre os acordes ocorreram
+no total de músicas trabalhadas aqui. No caso, considera-se 
+apenas a versão "simples" do acorde, ou seja, sem notas 
+extras. O diagrama está na ordem do círculo das quintas, 
+
+
+
+### Diagrama de cordas 
+
+```{r, results='asis', eval = FALSE}
+# Ordenando por círculo das quintas
+ordem <- c("G", "D", "A", "E", "B", "F#", 
+           "Db", "Ab", "Eb", "Bb", "F", "C")
+
+da$acorde <- factor(da$acorde, levels = ordem)
+
+db <- da %>%
+  group_by(song) %>% 
+  mutate(acorde_anterior = dplyr::lag(as.character(acorde), 
+                                      default = "")) %>% 
+  filter(acorde != acorde_anterior)
+
+
+comp <- data.frame(
+  acorde = db$acorde, 
+  seq = dplyr::lead(db$acorde)) %>% # Pega o acorde "seguinte"
+  dplyr::group_by(acorde, seq) %>%  # Agrupa por cada transição
+  dplyr::summarise(contagem = n()) # Conta quantas são as transições
+
+
+mat_comp <- reshape2::dcast(comp,   # Arranja em do tipo matriz quadrada
+                            acorde ~ seq, value.var = "contagem") 
+mm <- as.matrix(mat_comp[ ,c(-1, -14)]) # Converte o df em matriz (exigência do pacote)
+mm[is.na(mm)] <- 0 # Substitui na por 0 (exigência do pacote)
+dimnames(mm) <- list(acorde = unique(mat_comp$acorde),
+                     seq = unique(mat_comp$acorde))
+
+# Constrói o diagrama interativo
+w <- chorddiag::chorddiag(mm, showTicks = FALSE,
+                          palette = "Reds")
+```
+<center>
+<iframe src="web.html" width=100% height = 550 frameborder="0" scrolling="no" marginheight="0" marginwidth="0"> </iframe>
+
+
+
+Spotify
+=======================================================================
+
+
+Column {data-width=415, data-height=50}
+-----------------------------------------------------------------------
+
+### Gráficos sobre Dançabilidade
+
+```{r, fig.height=7, fig.width=10}
+p1 <- match %>% 
+  ggplot(aes(danceability, energy)) +
+  geom_point(colour = "tomato") +
+  geom_smooth(method  = "lm", colour = "skyblue") + 
+  labs(x = "Dançabilidade", y = "Energia") +
+  theme
+
+
+p2 <- match %>% 
+  ggplot(aes(danceability, loudness)) +
+  geom_point(colour = "tomato") +
+  geom_smooth(method  = "lm", colour = "skyblue") +
+  labs(x = "Dançabilidade", y = "Sonoridade") +
+  theme
+
+
+p3 <- match %>% 
+  ggplot(aes(danceability, speechiness)) +
+  geom_point(colour = "tomato") +
+  geom_smooth(method  = "lm", colour = "skyblue") + 
+  labs(x = "Dançabilidade", y = "Fala") +
+  theme
+
+
+p4 <- match %>% 
+  ggplot(aes(danceability, liveness)) +
+  geom_point(colour = "tomato") +
+  geom_smooth(method  = "lm", colour = "skyblue") + 
+  labs(x = "Dançabilidade", y = "Vivacidade") +
+  theme
+
+
+p5 <- match %>% 
+  ggplot(aes(danceability, duration_ms)) +
+  geom_point(colour = "tomato") +
+  geom_smooth(method  = "lm", colour = "skyblue") + 
+  labs(x = "Dançabilidade", y = "Duração") +
+  theme
+
+p6 <- match %>% 
+  ggplot(aes(danceability, acousticness)) +
+  geom_point(colour = "tomato") +  
+  geom_smooth(method  = "lm", colour = "skyblue") +
+  labs(x = "Dançabilidade", y = "Acusticidade") +
+  theme
+
+library(patchwork)
+p1 + p2 + p3 + p4 + p5 + p6 +  plot_layout(ncol = 3)
+```
+
+
+
+### Escalas: Cifraclub x Spotify
+
+```{r}
+match$key.y <- lvls_revalue(factor(match$key.y), 
+                         c("C", "C#", "D",  "D#", 
+                           "E",  "F", "F#", "G",  "
+                           G#", "A",  "A#", "B"))
+
+match$key.x <- factor(match$key.x, c("C", "C#", "D",  "D#", 
+                                     "E",  "F", "F#", "G",
+                                     "G#", "A",  "A#", "B"))
+
+tab <- table(match$key.x, match$key.y)
+dimnames(tab)[[2]][9] <- "G#"
+tab[-c(11, 13), ] %>% as.matrix()
+
+
+```
+
+
+
+Column {data-width=350, data-height=700}
+-----------------------------------------------------------------------
+### Definindo as variáveis
+
+As variáveis mostradas nos gráficos sobre as músicas do Chico
+Buarque podem ser definidas simplificadamente como:
+
+>  Dançabilidade: descreve o quanto uma música é "dançável". Esta 
+é uma medida que considera elementos como o ritmo, a batida, o tempo
+e a regularidade da música. 
+
+> Energia: é uma midade que representa a intensidade e atividade
+da música. Músicas mais energéticas são rápidas, altas e ruidosas,
+por exemplo. Por outro lado, músicas clássicas são consideradas
+de pouca energia. 
+
+> Sonoridade: é uma medida em decibéis sobre o quanto as canções
+são "altas", no sentido sonoro. Essa variável tem relação com
+com força física, ou amplitude, das músicas. 
+
+> Fala: essa é a variável que mostra o quanto da música são palavras
+faladas. Se esta medida estiver acima de 0.66, há grande chances
+dela ser inteiramente falada. De forma análoga, valores abaixo
+de 0.33 indicando músicas que provavelmente tem pouco ou quase
+nada de palavras.
+
+> Vivacidade: detecta a presença de audiências nas gravações. Se
+este valor estiver acima de 0.8, por exemplo, existe uma alta
+probabilidade da música ser ao vivo. 
+
+> Duração: é a duração da música em milisegundos. 
+
+> Acusticidade: é uma medida de confiança sobre o quanto uma música é 
+acústica. 
+
+
+**Gráficos ** - Os gráficos apresentados são da variável dançabilidade
+contra as outras explicadas acima, com uma reta de regressão linear
+simples sobre os pontos. Podemos observar o quanto as relações
+explicitadas fazem sentido. Por exemplo, quanto mais temos
+de energia em uma música, maior é seu nível de dançabilidade.
+Da mesma forma, quanto mais acústica, ela é menos dançável
+também, e assim por diante. 
+
+
+
+**Tabela ** - A tabela apresentada nessa seção representa 
+as escalas obtidas através do Cifraclub *versus* as escalas
+do Spotify. Um dos grandes problemas do Cifraclub é a quantidade
+de informações incorretas que os usuários inserem. Esta comparação
+demonstra o quanto os dados de um software diferem do que foi
+escrito no Cifraclub.
+
+
+
+
+Extração
+=======================================================================
+
+Column {data-width=350, data-height=20}
+-----------------------------------------------------------------------
+### Letras
+
+
+```{r, echo = TRUE, eval = FALSE}
+# install.packages(“vagalumeR”)
+library(vagalumeR)
+chave <- "sua-api-key"
+artista <- "chico-buarque"
+ids <- songNames(artista)
+# todas as letras
+letra <- purrr::map(ids$song.id, lyrics, 
+                    artist = artista, key = chave, type = "id") %>% 
+  purrr::map_dfr(data.frame)
+
+# letras por nome da música
+letra <- lyrics("a-banda", artist = "chico-buarque", 
+                key = chave, type = "name")
+
+```
+
+### Acordes
+
+
+```{r, echo = TRUE, eval = FALSE}
+library(tidyverse)
+
+# install.packages(“chorrrds”)
+library(chorrrds)
+
+nomes <- get_songs(artista)
+# todos os acordes
+acordes <- get_chords(nomes$url)
+head(acordes)
+# letras por música específica
+musica <- nomes %>% dplyr::filter(
+  stringr::str_detect(name ,pattern  = "a banda"))
+```
+
+
+Column {data-width=350, data-height=20}
+-----------------------------------------------------------------------
+### Spotify
+
+```{r, echo = TRUE, eval = FALSE}
+# devtools::install_github("tiagomendesdantas/Rspotify")
+library(Rspotify)
+keys <- spotifyOAuth("dcf4a5256a37451583bb7d726a404168",
+  "dcf4a5256a37451583bb7d726a404168","2aac09593fc94fdba30e02229a2bda0f") # autenticação
+
+busca <- unique(acordes$music) # do objeto anterior
+
+chave <- spotifyOAuth("app_id","client_id","client_secret")
+
+# buscando os ids das músicas dentro do Spotify
+possibly_track <- purrr::possibly(getTrack, otherwise = "mensagem")
+ids <- purrr::map(busca, possibly_track, token = chave) %>% 
+  purrr::map_dfr(data.frame) %>% 
+  dplyr::select(id, display_name)
+
+# buscando as features dos ids anteriores
+info <- purrr::map_dfr(ids$id, getFeatures, token = chave)  
+spotify <- dplyr::inner_join(ids, info, "id") %>% 
+  group_by(id, display_name) %>% 
+  slice(1) # mantendo apenas a primeira linha de cada nome de música
+
+```
+
+
+### Unindo tudo
+
+
+```{r, echo = TRUE, eval = FALSE}
+acordes <- acordes %>% 
+  dplyr::mutate(acorde = stringr::str_extract(chord, 
+                                              pattern = "^([A-G]#?b?)"),
+                song = stringr::str_remove(music, "chico buarque ")) 
+
+letra <- letra %>% 
+  dplyr::mutate(song = stringr::str_to_lower(song),
+                song = abjutils::rm_accent(song))
+
+spotify <- spotify %>% 
+  dplyr::mutate(song = stringr::str_to_lower(display_name), 
+                song = abjutils::rm_accent(song))
+
+match <- dplyr::inner_join(letra, acordes, by = "song") %>% 
+  dplyr::inner_join(spotify, by = "song") %>% 
+  dplyr::select(-c(uri, analysis_url))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
