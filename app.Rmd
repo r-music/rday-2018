@@ -104,7 +104,10 @@ pcs$neut[21] <- 0
 pcs$pos[25] <- 0
 
 pcs <- data.frame(pol = c(pcs$neg, pcs$neut, pcs$pos), 
-                  group = as.factor(rep(c(1, 2, 3), each = 36)),
+                  group = as.factor(rep(
+                    c("Negativo", 
+                      "Neutro", 
+                      "Positivo"), each = 36)),
                   mus = unique(match$song)) %>% 
   mutate(mus = str_to_title(as.character(mus)))
 
@@ -136,7 +139,7 @@ theme <- theme(
                                   fill = "white", size = 0.6), 
   strip.text = element_text(size = 14),
   axis.title = element_text(size = 14),
-  axis.text = element_text(size = 12))
+  axis.text = element_text(size = 10))
 
   
 pl <- p + theme
@@ -366,7 +369,7 @@ w <- chorddiag::chorddiag(mm, showTicks = FALSE,
                           palette = "Reds")
 ```
 <center>
-<iframe src="https://r-music.github.io/rday-2018/docs/web" width=100% height = 550 frameborder="0" scrolling="no" marginheight="0" marginwidth="0"> </iframe>
+<iframe src="https://r-music.github.io/rday-2018/docs/web" width=100% height = 650 frameborder="0" scrolling="no" marginheight="0" marginwidth="0"> </iframe>
 
 
 
@@ -560,15 +563,13 @@ Column {data-width=350, data-height=20}
 ```{r, echo = TRUE, eval = FALSE}
 # devtools::install_github("tiagomendesdantas/Rspotify")
 library(Rspotify)
-keys <- spotifyOAuth("dcf4a5256a37451583bb7d726a404168",
-  "dcf4a5256a37451583bb7d726a404168","2aac09593fc94fdba30e02229a2bda0f") # autenticação
 
 busca <- unique(acordes$music) # do objeto anterior
 
 chave <- spotifyOAuth("app_id","client_id","client_secret")
 
 # buscando os ids das músicas dentro do Spotify
-possibly_track <- purrr::possibly(getTrack, otherwise = "mensagem")
+possibly_track <- purrr::possibly(searchTrack, otherwise = "mensagem")
 ids <- purrr::map(busca, possibly_track, token = chave) %>% 
   purrr::map_dfr(data.frame) %>% 
   dplyr::select(id, display_name)
